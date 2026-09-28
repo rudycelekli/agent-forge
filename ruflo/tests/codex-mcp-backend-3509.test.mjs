@@ -4,16 +4,23 @@ import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import test from 'node:test';
+import { afterEach, test } from 'vitest';
 
 const bridges = [
   '../src/mcp-bridge/index.js',
   '../src/ruvocal/mcp-bridge/index.js',
 ];
+const processes = [];
+const directories = [];
+afterEach(() => {
+  for (const child of processes.splice(0)) child.kill();
+  for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 for (const relativePath of bridges) {
-  test(`${relativePath}: removed Codex MCP mode does not delay other groups`, async t => {
+  test(`${relativePath}: removed Codex MCP mode does not delay other groups`, async () => {
     const dir = mkdtempSync(join(tmpdir(), 'ruflo-codex-mcp-'));
+    directories.push(dir);
     const marker = join(dir, 'npx-spawned');
     const fakeNpx = join(dir, 'npx');
     writeFileSync(fakeNpx, '#!/bin/sh\nprintf launched > "$RUFLO_CODEX_SPAWN_MARKER"\nexit 1\n');
@@ -33,15 +40,11 @@ for (const relativePath of bridges) {
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    processes.push(child);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', chunk => { stdout += chunk; });
     child.stderr.on('data', chunk => { stderr += chunk; });
-    t.after(() => {
-      child.kill();
-      rmSync(dir, { recursive: true, force: true });
-    });
-
     const deadline = Date.now() + 3000;
     while (Date.now() < deadline && !stderr.includes('Codex CLI has no MCP server mode')) {
       await new Promise(resolve => setTimeout(resolve, 25));
