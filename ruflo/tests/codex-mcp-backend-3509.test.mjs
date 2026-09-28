@@ -46,7 +46,9 @@ for (const relativePath of bridges) {
     child.stdout.on('data', chunk => { stdout += chunk; });
     child.stderr.on('data', chunk => { stderr += chunk; });
     const deadline = Date.now() + 3000;
-    while (Date.now() < deadline && !stderr.includes('Codex CLI has no MCP server mode')) {
+    // stderr can reach the parent before stdout; wait for both startup signals.
+    while (Date.now() < deadline &&
+      (!stderr.includes('Codex CLI has no MCP server mode') || !/Active groups: core\s*$/m.test(stdout))) {
       await new Promise(resolve => setTimeout(resolve, 25));
     }
     assert.match(stdout, /Active groups: core\s*$/m, `stdout: ${stdout}\nstderr: ${stderr}`);
