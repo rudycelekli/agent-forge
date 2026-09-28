@@ -452,7 +452,8 @@ export const missionTools: MCPTool[] = [
       try {
         if (!validMissionId(input.missionId) || typeof input.stepId !== 'string' || !ID.test(input.stepId)) throw new Error('Invalid missionId or stepId');
         if (!['completed', 'failed', 'not_started'].includes(String(input.outcome))) throw new Error('Invalid reconciliation outcome');
-        if (typeof input.receipt !== 'string' || !input.receipt.trim() || input.receipt.length > 2000) throw new Error('A nonempty provider receipt or operator evidence is required');
+        const receipt = input.receipt;
+        if (typeof receipt !== 'string' || !receipt.trim() || receipt.length > 2000) throw new Error('A nonempty provider receipt or operator evidence is required');
         return mutate(input.missionId, (record) => {
           const step = record.steps.find((candidate) => candidate.stepId === input.stepId);
           if (!step || (step.kind !== 'agent' && step.kind !== 'action')) throw new Error('Step cannot be reconciled');
@@ -462,7 +463,7 @@ export const missionTools: MCPTool[] = [
           } else if (step.status !== 'ambiguous') {
             throw new Error('Agent call is not ambiguous; an active call cannot be reconciled');
           }
-          step.receipt = input.receipt;
+          step.receipt = receipt;
           if (input.outcome === 'not_started') {
             step.status = 'pending';
             delete step.error;
@@ -488,7 +489,8 @@ export const missionTools: MCPTool[] = [
     handler: async (input) => {
       try {
         if (!validMissionId(input.missionId) || typeof input.stepId !== 'string' || !ID.test(input.stepId)) throw new Error('Invalid missionId or stepId');
-        if (!Number.isInteger(input.ownerPid) || typeof input.evidence !== 'string' || !input.evidence.trim() || input.evidence.length > 2000) {
+        const evidence = input.evidence;
+        if (!Number.isInteger(input.ownerPid) || typeof evidence !== 'string' || !evidence.trim() || evidence.length > 2000) {
           throw new Error('Observed ownerPid and operator evidence are required');
         }
         return mutate(input.missionId, (record) => {
@@ -497,7 +499,7 @@ export const missionTools: MCPTool[] = [
           if (step.ownerPid === process.pid && step.ownerRunId === RUN_ID) throw new Error('Cannot recover an agent call owned by this live runner');
           step.status = 'ambiguous';
           step.error = 'Operator marked previous runner uncertain';
-          event(record, 'execution_uncertain', step.stepId, input.evidence);
+          event(record, 'execution_uncertain', step.stepId, evidence);
           delete step.ownerPid;
           delete step.ownerRunId;
           refreshStatus(record);
