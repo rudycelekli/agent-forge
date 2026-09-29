@@ -60,6 +60,44 @@ export const GNN_SQL_FUNCTIONS = {
   metapath: 'ruvector.metapath_layer',
 } as const;
 
+// These methods return SQL that callers can execute verbatim. TypeScript's
+// string and number types do not protect the interpolations at runtime.
+const SQL_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const SQL_FUNCTIONS = new Set<string>(Object.values(GNN_SQL_FUNCTIONS));
+
+function sqlIdentifier(value: unknown, name: string): string {
+  if (typeof value !== 'string' || !SQL_IDENTIFIER.test(value)) {
+    throw new TypeError(`GNN SQL: ${name} must be a simple SQL identifier`);
+  }
+  return value;
+}
+
+function sqlLiteral(value: unknown, name: string): string {
+  if (typeof value !== 'string') {
+    throw new TypeError(`GNN SQL: ${name} must be a string`);
+  }
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function sqlNumber(value: unknown, name: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new TypeError(`GNN SQL: ${name} must be a finite number`);
+  }
+  return value;
+}
+
+function sqlPositiveInteger(value: unknown, name: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 1) {
+    throw new TypeError(`GNN SQL: ${name} must be a positive integer`);
+  }
+  return value as number;
+}
+
+function sqlJson(value: unknown, name: string): string {
+  const json = JSON.stringify(value);
+  return `${sqlLiteral(json, name)}::jsonb`;
+}
+
 // ============================================================================
 // Core Interfaces
 // ============================================================================
@@ -549,10 +587,16 @@ export abstract class BaseGNNLayer implements IGNNLayer {
    * Generate SQL for this layer.
    */
   toSQL(tableName: string, options: SQLGenerationOptions = {}): string {
-    const schema = options.schema ?? 'public';
-    const nodeColumn = options.nodeColumn ?? 'embedding';
-    const edgeTable = options.edgeTable ?? `${tableName}_edges`;
-    const sqlFunction = GNN_SQL_FUNCTIONS[this.type] ?? 'ruvector.gnn_layer';
+    sqlIdentifier(tableName, 'tableName');
+    const schema = sqlIdentifier(options.schema ?? 'public', 'schema');
+    const nodeColumn = sqlIdentifier(options.nodeColumn ?? 'embedding', 'nodeColumn');
+    const edgeTable = sqlIdentifier(options.edgeTable ?? `${tableName}_edges`, 'edgeTable');
+    const sqlFunction = Object.hasOwn(GNN_SQL_FUNCTIONS, this.type)
+      ? GNN_SQL_FUNCTIONS[this.type]
+      : 'ruvector.gnn_layer';
+    if (sqlFunction !== 'ruvector.gnn_layer' && !SQL_FUNCTIONS.has(sqlFunction)) {
+      throw new TypeError('GNN SQL: unsupported layer function');
+    }
 
     const configJson = JSON.stringify({
       type: this.type,
@@ -570,6 +614,7 @@ export abstract class BaseGNNLayer implements IGNNLayer {
 
     if (options.prepared) {
       const prefix = options.paramPrefix ?? '$';
+      if (prefix !== '$') throw new TypeError('GNN SQL: paramPrefix must be $');
       return `
 SELECT ${sqlFunction}(
   (SELECT array_agg(${nodeColumn}) FROM "${schema}"."${tableName}"),
@@ -582,7 +627,7 @@ SELECT ${sqlFunction}(
 SELECT ${sqlFunction}(
   (SELECT array_agg(${nodeColumn}) FROM "${schema}"."${tableName}"),
   (SELECT array_agg(ARRAY[source_id, target_id]) FROM "${schema}"."${edgeTable}"),
-  '${configJson}'::jsonb
+  ${sqlLiteral(configJson, 'config')}::jsonb
 );`.trim();
   }
 
@@ -2651,38 +2696,44 @@ export class GraphOperations {
    * Generate SQL for k-hop neighbors query.
    */
   kHopNeighborsSQL(nodeId: string, k: number, tableName: string, options: SQLGenerationOptions = {}): string {
-    const schema = options.schema ?? 'public';
-    const edgeTable = options.edgeTable ?? `${tableName}_edges`;
+    sqlIdentifier(tableName, 'tableName');
+    const schema = sqlIdentifier(options.schema ?? 'public', 'schema');
+    const edgeTable = sqlIdentifier(options.edgeTable ?? `${tableName}_edges`, 'edgeTable');
+    const node = sqlLiteral(nodeId, 'nodeId');
+    const depth = sqlPositiveInteger(k, 'k');
 
     return `
 WITH RECURSIVE k_hop AS (
   SELECT source_id AS node_id, 1 AS depth
   FROM "${schema}"."${edgeTable}"
-  WHERE target_id = '${nodeId}'
+  WHERE target_id = ${node}
   UNION
   SELECT target_id AS node_id, 1 AS depth
   FROM "${schema}"."${edgeTable}"
-  WHERE source_id = '${nodeId}'
+  WHERE source_id = ${node}
   UNION ALL
   SELECT e.target_id AS node_id, kh.depth + 1
   FROM k_hop kh
   JOIN "${schema}"."${edgeTable}" e ON kh.node_id = e.source_id
-  WHERE kh.depth < ${k}
+  WHERE kh.depth < ${depth}
   UNION ALL
   SELECT e.source_id AS node_id, kh.depth + 1
   FROM k_hop kh
   JOIN "${schema}"."${edgeTable}" e ON kh.node_id = e.target_id
-  WHERE kh.depth < ${k}
+  WHERE kh.depth < ${depth}
 )
-SELECT DISTINCT node_id FROM k_hop WHERE node_id != '${nodeId}';`.trim();
+SELECT DISTINCT node_id FROM k_hop WHERE node_id != ${node};`.trim();
   }
 
   /**
    * Generate SQL for shortest path query.
    */
   shortestPathSQL(source: string, target: string, tableName: string, options: SQLGenerationOptions = {}): string {
-    const schema = options.schema ?? 'public';
-    const edgeTable = options.edgeTable ?? `${tableName}_edges`;
+    sqlIdentifier(tableName, 'tableName');
+    const schema = sqlIdentifier(options.schema ?? 'public', 'schema');
+    const edgeTable = sqlIdentifier(options.edgeTable ?? `${tableName}_edges`, 'edgeTable');
+    const sourceId = sqlLiteral(source, 'source');
+    const targetId = sqlLiteral(target, 'target');
 
     return `
 WITH RECURSIVE path AS (
@@ -2693,7 +2744,7 @@ WITH RECURSIVE path AS (
     weight AS total_weight,
     1 AS depth
   FROM "${schema}"."${edgeTable}"
-  WHERE source_id = '${source}'
+  WHERE source_id = ${sourceId}
   UNION ALL
   SELECT
     p.source_id,
@@ -2708,7 +2759,7 @@ WITH RECURSIVE path AS (
 )
 SELECT path, total_weight
 FROM path
-WHERE target_id = '${target}'
+WHERE target_id = ${targetId}
 ORDER BY total_weight
 LIMIT 1;`.trim();
   }
@@ -2717,10 +2768,11 @@ LIMIT 1;`.trim();
    * Generate SQL for PageRank computation.
    */
   pageRankSQL(tableName: string, options: PageRankOptions & SQLGenerationOptions = {}): string {
-    const schema = options.schema ?? 'public';
-    const edgeTable = options.edgeTable ?? `${tableName}_edges`;
-    const damping = options.damping ?? 0.85;
-    const maxIterations = options.maxIterations ?? 100;
+    sqlIdentifier(tableName, 'tableName');
+    const schema = sqlIdentifier(options.schema ?? 'public', 'schema');
+    const edgeTable = sqlIdentifier(options.edgeTable ?? `${tableName}_edges`, 'edgeTable');
+    const damping = sqlNumber(options.damping ?? 0.85, 'damping');
+    const maxIterations = sqlPositiveInteger(options.maxIterations ?? 100, 'maxIterations');
 
     return `
 SELECT ruvector.page_rank(
@@ -2734,15 +2786,19 @@ SELECT ruvector.page_rank(
    * Generate SQL for community detection.
    */
   communityDetectionSQL(tableName: string, options: CommunityOptions & SQLGenerationOptions): string {
-    const schema = options.schema ?? 'public';
-    const edgeTable = options.edgeTable ?? `${tableName}_edges`;
+    sqlIdentifier(tableName, 'tableName');
+    const schema = sqlIdentifier(options.schema ?? 'public', 'schema');
+    const edgeTable = sqlIdentifier(options.edgeTable ?? `${tableName}_edges`, 'edgeTable');
     const algorithm = options.algorithm ?? 'louvain';
-    const resolution = options.resolution ?? 1.0;
+    if (!['louvain', 'label_propagation', 'girvan_newman', 'spectral'].includes(algorithm)) {
+      throw new TypeError('GNN SQL: unsupported community algorithm');
+    }
+    const resolution = sqlNumber(options.resolution ?? 1.0, 'resolution');
 
     return `
 SELECT ruvector.community_detection(
   (SELECT array_agg(ARRAY[source_id::text, target_id::text]) FROM "${schema}"."${edgeTable}"),
-  '${algorithm}',
+  ${sqlLiteral(algorithm, 'algorithm')},
   ${resolution}
 );`.trim();
   }
@@ -2775,9 +2831,10 @@ export class GNNSQLGenerator {
     tableName: string,
     options: SQLGenerationOptions = {}
   ): string {
-    const schema = options.schema ?? 'public';
-    const nodeColumn = options.nodeColumn ?? 'embedding';
-    const edgeTable = options.edgeTable ?? `${tableName}_edges`;
+    sqlIdentifier(tableName, 'tableName');
+    const schema = sqlIdentifier(options.schema ?? 'public', 'schema');
+    const nodeColumn = sqlIdentifier(options.nodeColumn ?? 'embedding', 'nodeColumn');
+    const edgeTable = sqlIdentifier(options.edgeTable ?? `${tableName}_edges`, 'edgeTable');
 
     const layerConfigs = layers.map((l) => ({
       type: l.type,
@@ -2793,7 +2850,7 @@ export class GNNSQLGenerator {
 SELECT ruvector.batch_gnn_forward(
   (SELECT array_agg(${nodeColumn}) FROM "${schema}"."${tableName}"),
   (SELECT array_agg(ARRAY[source_id, target_id]) FROM "${schema}"."${edgeTable}"),
-  '${JSON.stringify(layerConfigs)}'::jsonb
+  ${sqlJson(layerConfigs, 'layerConfigs')}
 );`.trim();
   }
 
@@ -2805,13 +2862,16 @@ SELECT ruvector.batch_gnn_forward(
     cacheTable: string,
     options: SQLGenerationOptions = {}
   ): string {
-    const schema = options.schema ?? 'public';
+    sqlIdentifier(tableName, 'tableName');
+    sqlIdentifier(cacheTable, 'cacheTable');
+    const schema = sqlIdentifier(options.schema ?? 'public', 'schema');
+    const nodeColumn = sqlIdentifier(options.nodeColumn ?? 'embedding', 'nodeColumn');
 
     return `
 INSERT INTO "${schema}"."${cacheTable}" (node_id, embedding, computed_at)
 SELECT
   id,
-  ${options.nodeColumn ?? 'embedding'},
+  ${nodeColumn},
   NOW()
 FROM "${schema}"."${tableName}"
 ON CONFLICT (node_id)
@@ -2828,12 +2888,14 @@ DO UPDATE SET
     dimension: number,
     options: SQLGenerationOptions = {}
   ): string {
-    const schema = options.schema ?? 'public';
+    sqlIdentifier(cacheTable, 'cacheTable');
+    const schema = sqlIdentifier(options.schema ?? 'public', 'schema');
+    const safeDimension = sqlPositiveInteger(dimension, 'dimension');
 
     return `
 CREATE TABLE IF NOT EXISTS "${schema}"."${cacheTable}" (
   node_id TEXT PRIMARY KEY,
-  embedding vector(${dimension}) NOT NULL,
+  embedding vector(${safeDimension}) NOT NULL,
   computed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   layer_config JSONB,
   version INTEGER DEFAULT 1
@@ -2851,9 +2913,10 @@ ON "${schema}"."${cacheTable}" (computed_at);`.trim();
     aggregation: GNNAggregation,
     options: SQLGenerationOptions = {}
   ): string {
-    const schema = options.schema ?? 'public';
-    const nodeColumn = options.nodeColumn ?? 'embedding';
-    const edgeTable = options.edgeTable ?? `${tableName}_edges`;
+    sqlIdentifier(tableName, 'tableName');
+    const schema = sqlIdentifier(options.schema ?? 'public', 'schema');
+    const nodeColumn = sqlIdentifier(options.nodeColumn ?? 'embedding', 'nodeColumn');
+    const edgeTable = sqlIdentifier(options.edgeTable ?? `${tableName}_edges`, 'edgeTable');
 
     const aggFunctionMap: Record<GNNAggregation, string> = {
       mean: 'avg',
@@ -2887,8 +2950,9 @@ GROUP BY n.id;`.trim();
     poolingMethod: 'mean' | 'sum' | 'max' | 'attention',
     options: SQLGenerationOptions = {}
   ): string {
-    const schema = options.schema ?? 'public';
-    const nodeColumn = options.nodeColumn ?? 'embedding';
+    sqlIdentifier(tableName, 'tableName');
+    const schema = sqlIdentifier(options.schema ?? 'public', 'schema');
+    const nodeColumn = sqlIdentifier(options.nodeColumn ?? 'embedding', 'nodeColumn');
 
     const poolFunction = {
       mean: 'vector_avg',
