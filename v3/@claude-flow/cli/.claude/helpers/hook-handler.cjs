@@ -232,9 +232,9 @@ function safeRequire(modulePath) {
   return null;
 }
 
-const router = safeRequire(path.join(helpersDir, 'router.js'));
-const session = safeRequire(path.join(helpersDir, 'session.js'));
-const memory = safeRequire(path.join(helpersDir, 'memory.js'));
+const router = safeRequire(path.join(helpersDir, 'router.cjs'));
+const session = safeRequire(path.join(helpersDir, 'session.cjs'));
+const memory = safeRequire(path.join(helpersDir, 'memory.cjs'));
 const intelligence = safeRequire(path.join(helpersDir, 'intelligence.cjs'));
 
 // ── Intelligence timeout protection (fixes #1530, #1531) ───────────────────
@@ -286,6 +286,17 @@ async function readStdin() {
   });
 }
 
+// ADR-404: the ruflo mod (plugins/ruflo-mods) runs these events in-process
+// inside Claude Code and sets RUFLO_MODS_OWNS on the process, which every hook
+// started after inherits. An event named there is the mod's; returning here
+// keeps it from firing twice. Only side-effect events can be handed over:
+// guards such as pre-bash always run, whatever the variable says.
+const MOD_OWNABLE_EVENTS = new Set(['route', 'post-edit']);
+function ownedByMod(cmd, env = process.env) {
+  if (!MOD_OWNABLE_EVENTS.has(cmd)) return false;
+  return String(env.RUFLO_MODS_OWNS || '').split(',').some((owned) => owned.trim() === cmd);
+}
+
 function claimSideEffectEvent(family, stdinData, event) {
   if (/^(1|true|yes|on)$/i.test(process.env.RUFLO_DISABLE_HOOK_DEDUP || '')) return true;
   try {
@@ -312,6 +323,8 @@ function claimSideEffectEvent(family, stdinData, event) {
 }
 
 async function main() {
+  if (ownedByMod(command)) return;
+
   // Global safety timeout: hooks must NEVER hang (#1530, #1531)
   const safetyTimer = setTimeout(() => {
     process.stderr.write("[WARN] Hook handler global timeout (5s), forcing exit\n");
@@ -603,4 +616,7 @@ if (require.main === module) {
   });
 }
 
-module.exports = { runWithTimeout, INTELLIGENCE_TIMEOUT_MS };
+// Which sibling helpers loaded (all CommonJS, shipped as .cjs — #3555).
+const loadedHelpers = { router: !!router, session: !!session, memory: !!memory, intelligence: !!intelligence };
+
+module.exports = { runWithTimeout, INTELLIGENCE_TIMEOUT_MS, loadedHelpers, ownedByMod, MOD_OWNABLE_EVENTS };
