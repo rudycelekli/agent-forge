@@ -178,7 +178,7 @@ export async function withRetry<T>(
         retryHistory,
       };
     } catch (error) {
-      lastError = error as Error;
+      lastError = error instanceof Error ? error : new Error(String(error));
 
       // Check if we should retry
       if (!shouldRetryError(lastError, attempt, finalConfig)) {
