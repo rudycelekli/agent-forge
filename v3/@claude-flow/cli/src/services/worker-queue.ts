@@ -396,6 +396,11 @@ export class WorkerQueue extends EventEmitter {
       return;
     }
 
+    // Late or duplicate outcomes must not rewrite a settled task.
+    if (['completed', 'failed', 'timeout', 'cancelled'].includes(task.status)) {
+      return;
+    }
+
     task.status = 'completed';
     task.completedAt = new Date();
     task.result = result;
@@ -415,6 +420,11 @@ export class WorkerQueue extends EventEmitter {
     const task = this.store.getTask(taskId);
     if (!task) {
       this.emit('warning', { message: `Task ${taskId} not found for failure` });
+      return;
+    }
+
+    // Late or duplicate outcomes must not rewrite a settled task.
+    if (['completed', 'failed', 'timeout', 'cancelled'].includes(task.status)) {
       return;
     }
 
