@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ConnectionPool as MCPPool } from './connection-pool.js';
+import { ConnectionPool as MCPPool } from '../src/connection-pool.js';
 import { ConnectionPool as SharedPool } from '../../shared/src/mcp/connection-pool.js';
 const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 describe.each([
