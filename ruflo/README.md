@@ -355,6 +355,14 @@ User Guide section index:
 
 ---
 
+## Redirecting CLI output
+
+One-shot commands drain queued stdout and stderr before exiting, so large JSON
+results remain complete when piped or redirected. They still terminate native
+background handles after output completes. A broken output pipe returns failure
+rather than reporting successful delivery. This does not change the lifetime of
+long-running daemon, watch, or MCP commands.
+
 ## Support
 
 | Resource | Link |

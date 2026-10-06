@@ -18,13 +18,19 @@ describe('CLI', () => {
     consoleOutput = [];
     consoleErrorOutput = [];
 
-    vi.spyOn(process.stdout, 'write').mockImplementation((str: string | Uint8Array) => {
+    vi.spyOn(process.stdout, 'write').mockImplementation((str: string | Uint8Array, encodingOrCallback?: unknown, callback?: () => void) => {
       consoleOutput.push(String(str));
+      // Match Writable.write's completion contract after capturing the output.
+      const done = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback;
+      if (done) queueMicrotask(() => done());
       return true;
     });
 
-    vi.spyOn(process.stderr, 'write').mockImplementation((str: string | Uint8Array) => {
+    vi.spyOn(process.stderr, 'write').mockImplementation((str: string | Uint8Array, encodingOrCallback?: unknown, callback?: () => void) => {
       consoleErrorOutput.push(String(str));
+      // Match Writable.write's completion contract after capturing the output.
+      const done = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback;
+      if (done) queueMicrotask(() => done());
       return true;
     });
 

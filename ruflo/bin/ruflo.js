@@ -4,6 +4,34 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 
+/**
+ * Drain queued CLI output before terminating native handles from one-shot work.
+ * The wrapper owns the same small helper so it does not require a newer CLI
+ * package API. Stream failures must not turn a successful command into exit 0.
+ */
+async function exitAfterFlush(code) {
+  let failed = false;
+  const cleanup = [];
+  try {
+    await Promise.all([process.stdout, process.stderr].map((stream) => new Promise((resolve) => {
+      const onError = () => { failed = true; resolve(); };
+      stream.once('error', onError);
+      cleanup.push(() => stream.removeListener('error', onError));
+      try {
+        stream.write('', (error) => {
+          if (error) failed = true;
+          resolve();
+        });
+      } catch {
+        onError();
+      }
+    })));
+    return process.exit(failed && code === 0 ? 1 : code);
+  } finally {
+    for (const remove of cleanup) remove();
+  }
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // #2256 fast path: --version / -V must NOT trigger heavy imports (the
@@ -68,10 +96,10 @@ if (isMCPMode) {
       // #1641/#1653: Exit cleanly after one-shot commands.
       // HNSW VectorDb, sql.js WASM, and ONNX worker threads keep the
       // event loop alive after the command handler returns.
-      process.exit(0);
+      return exitAfterFlush(0);
     })
     .catch((error) => {
       console.error('Fatal error:', error.message);
-      process.exit(1);
+      return exitAfterFlush(1);
     });
 }

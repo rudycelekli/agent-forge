@@ -339,16 +339,17 @@ if (isMCPMode) {
 } else {
   // Run normal CLI mode
   const { CLI } = await import('../dist/src/index.js');
+  const { exitAfterFlush } = await import('../dist/src/process-exit.js');
   const cli = new CLI();
   cli.run()
     .then(() => {
       // #1552: Exit cleanly after one-shot commands.
       // Long-running commands (daemon foreground, mcp, status --watch) never resolve,
       // so this only fires for normal CLI commands.
-      process.exit(0);
+      return exitAfterFlush(0);
     })
     .catch((error) => {
       console.error('Fatal error:', error.message);
-      process.exit(1);
+      return exitAfterFlush(1);
     });
 }

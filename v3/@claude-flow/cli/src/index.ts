@@ -22,6 +22,7 @@ import { OutputFormatter, output } from './output.js';
 import { commands, commandsByCategory, getCommandsByCategory, commandRegistry, getCommand, getCommandAsync, getCommandNames, getLazyCommandNames, hasCommand } from './commands/index.js';
 import { suggestCommand } from './suggest.js';
 import { runStartupUpdateCheck } from './update/index.js';
+import { exitAfterFlush } from './process-exit.js';
 
 // Read version from package.json at runtime
 function getPackageVersion(): string {
@@ -253,7 +254,7 @@ export class CLI {
           const availableCommands = Array.from(new Set([...commands.map(c => c.name), ...getCommandNames()]));
           const { message } = suggestCommand(attemptedCommand, availableCommands);
           this.output.writeln(this.output.dim(`  ${message}`));
-          process.exit(1);
+          return await exitAfterFlush(1);
         } else {
           await this.showHelp();
         }
@@ -277,7 +278,7 @@ export class CLI {
         const availableCommands = Array.from(new Set([...commands.map(c => c.name), ...getCommandNames()]));
         const { message } = suggestCommand(commandName, availableCommands);
         this.output.writeln(this.output.dim(`  ${message}`));
-        process.exit(1);
+        return await exitAfterFlush(1);
       }
 
       // Handle subcommand (supports nested subcommands)
@@ -341,7 +342,7 @@ export class CLI {
         for (const error of validationErrors) {
           this.output.printError(error);
         }
-        process.exit(1);
+        return await exitAfterFlush(1);
       }
 
       // Build context
@@ -367,7 +368,7 @@ export class CLI {
         }
 
         if (result && !result.success) {
-          process.exit(result.exitCode || 1);
+          return await exitAfterFlush(result.exitCode || 1);
         }
       } else {
         // No action - show command help (full path so nested subcommands work)
@@ -379,7 +380,7 @@ export class CLI {
       if (errorMessage && errorMessage.startsWith('process.exit:')) {
         throw error; // Re-throw so tests can capture the exit code
       }
-      this.handleError(error as Error);
+      await this.handleError(error as Error);
     }
   }
 
@@ -643,7 +644,7 @@ export class CLI {
   /**
    * Handle errors
    */
-  private handleError(error: Error): void {
+  private async handleError(error: Error): Promise<void> {
     if ('code' in error) {
       // CLIError
       const cliError = error as CLIError;
@@ -653,7 +654,7 @@ export class CLI {
         this.output.writeln(this.output.dim(JSON.stringify(cliError.details, null, 2)));
       }
 
-      process.exit(cliError.exitCode);
+      return await exitAfterFlush(cliError.exitCode);
     } else {
       // Generic error
       this.output.printError(error.message);
@@ -663,7 +664,7 @@ export class CLI {
         this.output.writeln(this.output.dim(error.stack || ''));
       }
 
-      process.exit(1);
+      return await exitAfterFlush(1);
     }
   }
 }
