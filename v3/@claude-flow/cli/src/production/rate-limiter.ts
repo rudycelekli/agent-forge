@@ -39,6 +39,8 @@ export interface RateLimitResult {
 }
 
 interface TokenBucket {
+  operation: string;
+  userId?: string;
   tokens: number;
   lastRefill: number;
   requests: number[];
@@ -91,7 +93,7 @@ export class RateLimiter {
 
     let bucket = this.buckets.get(bucketKey);
     if (!bucket) {
-      bucket = this.createBucket();
+      bucket = this.createBucket(operation, userId && this.config.perUserLimits ? userId : undefined);
       this.buckets.set(bucketKey, bucket);
       this.cleanupBuckets();
     }
@@ -204,8 +206,8 @@ export class RateLimiter {
     const operationCounts = new Map<string, number>();
     const users = new Set<string>();
 
-    for (const [key, bucket] of this.buckets) {
-      const [operation, userId] = key.split(':');
+    for (const bucket of this.buckets.values()) {
+      const { operation, userId } = bucket;
       if (userId) users.add(userId);
 
       const current = operationCounts.get(operation) || 0;
@@ -235,8 +237,10 @@ export class RateLimiter {
     };
   }
 
-  private createBucket(): TokenBucket {
+  private createBucket(operation: string = '', userId?: string): TokenBucket {
     return {
+      operation,
+      userId,
       tokens: this.config.maxRequests,
       lastRefill: Date.now(),
       requests: [],
