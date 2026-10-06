@@ -103,7 +103,7 @@ function calculateDelay(
     delay += (Math.random() - 0.5) * 2 * jitterRange;
   }
 
-  return Math.round(Math.max(0, delay));
+  return Math.max(0, Math.min(config.maxDelayMs, Math.round(delay)));
 }
 
 /**
