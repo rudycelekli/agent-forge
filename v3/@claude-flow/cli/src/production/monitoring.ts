@@ -354,6 +354,7 @@ export class MonitoringHooks {
    * Get metrics for a specific name
    */
   getMetrics(name: string, since?: number): MetricEvent[] {
+    this.cleanupMetrics();
     let filtered = this.metrics.filter(m => m.name === name);
     if (since) {
       filtered = filtered.filter(m => m.timestamp >= since);
@@ -365,6 +366,7 @@ export class MonitoringHooks {
    * Get all metrics summary
    */
   getMetricsSummary(): Record<string, { count: number; lastValue: number; avgValue: number }> {
+    this.cleanupMetrics();
     const summary: Record<string, { count: number; sum: number; lastValue: number }> = {};
 
     for (const metric of this.metrics) {
