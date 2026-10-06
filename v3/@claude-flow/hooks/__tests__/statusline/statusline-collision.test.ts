@@ -10,6 +10,16 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { StatuslineGenerator } from '../../src/statusline/index.js';
+
+function formattingGenerator(): StatuslineGenerator {
+  const generator = new StatuslineGenerator();
+  generator.registerDataSources({
+    getUserInfo: () => ({ name: 'fixture-user', gitBranch: 'main', modelName: 'fixture-model' }),
+    getSystemMetrics: () => ({ memoryMB: 128, contextPct: 12, intelligencePct: 34, subAgents: 2 }),
+  });
+  return generator;
+}
 
 /**
  * Strip ANSI escape codes from a string
@@ -77,11 +87,8 @@ function isCollisionZoneClear(line: string): boolean {
 }
 
 describe('Statusline Collision Zone Avoidance', () => {
-  it('should have clear collision zone in safe multi-line output', async () => {
-    // Import dynamically to avoid build issues
-    const { StatuslineGenerator } = await import('../../src/statusline/index.js');
-
-    const generator = new StatuslineGenerator();
+  it('should have clear collision zone in safe multi-line output', () => {
+    const generator = formattingGenerator();
     const output = generator.generateSafeStatusline();
 
     if (!output) {
@@ -99,10 +106,8 @@ describe('Statusline Collision Zone Avoidance', () => {
     }
   });
 
-  it('should produce single-line output when requested', async () => {
-    const { StatuslineGenerator } = await import('../../src/statusline/index.js');
-
-    const generator = new StatuslineGenerator();
+  it('should produce single-line output when requested', () => {
+    const generator = formattingGenerator();
     const output = generator.generateSingleLine();
 
     if (!output) {
@@ -113,10 +118,8 @@ describe('Statusline Collision Zone Avoidance', () => {
     expect(output.includes('\n')).toBe(false);
   });
 
-  it('should have padding in the collision line', async () => {
-    const { StatuslineGenerator } = await import('../../src/statusline/index.js');
-
-    const generator = new StatuslineGenerator();
+  it('should have padding in the collision line', () => {
+    const generator = formattingGenerator();
     const output = generator.generateSafeStatusline();
 
     if (!output) {
@@ -144,10 +147,8 @@ describe('Statusline Collision Zone Avoidance', () => {
 });
 
 describe('Statusline Output Modes', () => {
-  it('should support all output modes', async () => {
-    const { StatuslineGenerator } = await import('../../src/statusline/index.js');
-
-    const generator = new StatuslineGenerator();
+  it('should support all output modes', () => {
+    const generator = formattingGenerator();
 
     // Regular statusline
     const regular = generator.generateStatusline();
