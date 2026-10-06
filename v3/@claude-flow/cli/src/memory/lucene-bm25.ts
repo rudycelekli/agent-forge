@@ -162,6 +162,8 @@ function step4(w: string): string {
           return stem;
         }
       }
+      // A matching longest suffix owns this step even when its measure fails.
+      return w;
     }
   }
   // ION special-case
