@@ -275,6 +275,7 @@ export class WorkerQueue extends EventEmitter {
   private store: InMemoryStore;
   private workerId: string;
   private heartbeatTimer?: NodeJS.Timeout;
+  private retryTimers = new Set<NodeJS.Timeout>();
   private processingTasks: Set<string> = new Set();
   private isShuttingDown = false;
   private maxConcurrent = 1;
@@ -431,10 +432,12 @@ export class WorkerQueue extends EventEmitter {
 
       // Re-queue with delay (exponential backoff)
       const delay = Math.min(30000, 1000 * Math.pow(2, task.retryCount));
-      setTimeout(() => {
+      const retryTimer = setTimeout(() => {
+        this.retryTimers.delete(retryTimer);
         const queueName = this.getQueueName(task.workerType);
         this.store.pushToQueue(queueName, taskId, PRIORITY_SCORES[task.priority]);
       }, delay);
+      this.retryTimers.add(retryTimer);
 
       this.emit('taskRetrying', { taskId, retryCount: task.retryCount, delay });
     } else {
@@ -654,6 +657,8 @@ export class WorkerQueue extends EventEmitter {
     }
 
     // Stop store cleanup
+    for (const timer of this.retryTimers) clearTimeout(timer);
+    this.retryTimers.clear();
     this.store.stopCleanup();
 
     await this.unregisterWorker();
