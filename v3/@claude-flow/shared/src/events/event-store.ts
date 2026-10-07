@@ -414,6 +414,7 @@ export class EventStore extends EventEmitter {
 
   /**
    * Get snapshot for an aggregate
+   * Returns null when no persisted snapshot exists.
    */
   async getSnapshot(aggregateId: string): Promise<EventSnapshot | null> {
     this.ensureInitialized();
@@ -422,7 +423,8 @@ export class EventStore extends EventEmitter {
       'SELECT * FROM snapshots WHERE aggregate_id = ? ORDER BY version DESC LIMIT 1'
     );
 
-    const row = stmt.getAsObject([aggregateId]);
+    stmt.bind([aggregateId]);
+    const row = stmt.step() ? stmt.getAsObject() : undefined;
     stmt.free();
 
     if (!row || Object.keys(row).length === 0) {
