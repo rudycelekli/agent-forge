@@ -25,7 +25,7 @@
 import { createHash } from 'crypto';
 import { resolve } from 'path';
 import * as fs from 'fs';
-import { safeGitTextSync } from '@claude-flow/security/safe-git';
+import { safeGitBufferSync } from '@claude-flow/security/safe-git';
 
 export interface GitWorkspaceIdentity {
   /** Absolute root of this worktree (or the input dir when not a git repo). */
@@ -44,10 +44,12 @@ const GIT_TIMEOUT_MS = 3000;
 
 function git(cwd: string, ...args: string[]): string | null {
   try {
-    return safeGitTextSync(cwd, args, {
+    // Git appends one LF to these records; surrounding whitespace is valid
+    // pathname data and must not be trimmed from a worktree/common directory.
+    return safeGitBufferSync(cwd, args, {
       timeoutMs: GIT_TIMEOUT_MS,
       stderr: 'ignore',
-    });
+    }).toString('utf8').replace(/\n$/, '');
   } catch {
     return null;
   }

@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync, renameSync, realpathSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
@@ -60,6 +60,24 @@ describe('#2661 — git workspace identity', () => {
     expect(b.repositoryId).toBe(a.repositoryId);
     expect(b.head).toBe(a.head);
   });
+
+  it.skipIf(process.platform === 'win32').each([' ', '\n', '\r'])(
+    'preserves valid pathname suffix %j in roots and linked worktree identity', (suffix) => {
+      const renamed = repo + suffix;
+      renameSync(repo, renamed);
+      repo = renamed;
+      worktree += suffix;
+      git(repo, 'worktree', 'add', '-q', worktree, '-b', 'literal-path-branch');
+      const root = resolveGitWorkspaceIdentity(repo);
+      const linked = resolveGitWorkspaceIdentity(worktree);
+      expect(root.worktreeRoot).toBe(realpathSync(repo));
+      expect(linked.worktreeRoot).toBe(realpathSync(worktree));
+      expect(root.head).toBe(git(repo, 'rev-parse', 'HEAD'));
+      expect(linked.head).toBe(root.head);
+      expect(linked.repositoryId).toBe(root.repositoryId);
+      expect(realpathSync(linked.commonGitDir)).toBe(realpathSync(root.commonGitDir));
+    },
+  );
 
   it('different repositories get different repositoryIds', () => {
     const other = mkdtempSync(join(tmpdir(), 'gwi-other-'));
