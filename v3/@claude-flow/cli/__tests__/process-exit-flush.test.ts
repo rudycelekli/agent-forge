@@ -1,13 +1,18 @@
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { ModuleKind, ScriptTarget, transpileModule } from 'typescript';
 
 const wrapper = new URL('../../../../ruflo/bin/ruflo.js', import.meta.url);
 // Run the wrapper's exact private function without importing its CLI runtime.
 const wrapperHelper = readFileSync(wrapper, 'utf8').match(/^async function exitAfterFlush[\s\S]*?\n}\n/m)?.[0];
 if (!wrapperHelper) throw new Error('Missing wrapper output-drain helper');
+// Child Node runtimes such as Node 20 cannot import TypeScript directly.
+const cliHelper = transpileModule(readFileSync(new URL('../src/process-exit.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ModuleKind.ESNext, target: ScriptTarget.ES2022 },
+}).outputText;
 const helpers = [
-  { label: 'CLI', url: new URL('../src/process-exit.ts', import.meta.url) },
+  { label: 'CLI', url: new URL(`data:text/javascript;base64,${Buffer.from(cliHelper).toString('base64')}`) },
   { label: 'wrapper', url: new URL(`data:text/javascript;base64,${Buffer.from(`export ${wrapperHelper}`).toString('base64')}`) },
 ];
 
