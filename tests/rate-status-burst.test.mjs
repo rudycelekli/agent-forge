@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { RateLimiter } from '../v3/@claude-flow/cli/src/production/rate-limiter.ts';
 test('status reports the same burst capacity as admission checks', () => {
