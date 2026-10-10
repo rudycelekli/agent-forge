@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { OutputFormatter } from '../v3/@claude-flow/cli-core/src/output.ts';
 test('one to three character columns never overflow their border', () => {
