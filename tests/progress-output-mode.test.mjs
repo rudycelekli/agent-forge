@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { OutputFormatter } from '../v3/@claude-flow/cli-core/src/output.ts';
 function capture(run) { const original = process.stdout.write; let output = ''; process.stdout.write = function(text) { output += text; return true; }; try { run(); return output; } finally { process.stdout.write = original; } }
