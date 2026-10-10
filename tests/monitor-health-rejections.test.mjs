@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { MonitoringHooks } from '../v3/@claude-flow/cli/src/production/monitoring.ts';
 test('non-Error health failures are recorded without aborting later checks', async () => {
