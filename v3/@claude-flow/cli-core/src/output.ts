@@ -547,7 +547,7 @@ export class Progress {
 
     // Clear previous line and write new
     if (this.lastRender) {
-      process.stdout.write('\r' + ' '.repeat(this.lastRender.length) + '\r');
+      process.stdout.write('\r\x1b[2K');
     }
 
     process.stdout.write(output);
