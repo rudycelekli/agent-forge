@@ -2,6 +2,7 @@
  * V3 CLI Memory Command
  * Memory operations for AgentDB integration
  */
+import { validateAppendConditions } from '../memory/append-conditions.js';
 
 import type { Command, CommandContext, CommandResult } from '../types.js';
 import { output } from '../output.js';
@@ -11,6 +12,7 @@ import { distillCommand } from './memory-distill.js';
 import { backupCommand } from './memory-backup.js';
 import { countSiblingStoreRows } from '../memory/sibling-store.js';
 import { resolveDbPath } from '../memory/memory-initializer.js';
+import { MAX_LIST_EMBEDDINGS } from '../memory/embedding-q8.js';
 import { existsSync } from 'node:fs';
 import { siblingAgentDbPath } from '../memory/memory-bridge.js';
 import { validateIdentifier } from '../mcp-tools/validate-input.js';
@@ -117,6 +119,10 @@ const storeCommand: Command = {
       type: 'boolean',
       default: false
     },
+    { name: 'embedding', type: 'boolean', description: 'Generate an embedding (default true; --no-embedding stores structured data only)' },
+    { name: 'append-conditions', type: 'string', description: 'JSON predicates checked atomically with a native append-only write' },
+    { name: 'require-native', type: 'boolean', description: 'Refuse whole-image and in-memory fallback memory writers' },
+    { name: 'append-only', type: 'boolean', description: 'Immutable insert; never update or resurrect an existing key' },
     {
       name: 'upsert',
       short: 'u',
@@ -249,7 +255,7 @@ const storeCommand: Command = {
 
     output.printInfo(`Storing in ${namespace}/${key}...`);
 
-    // Use direct sql.js storage with automatic embedding generation
+    // Use the canonical provider; embedding and native immutable append controls are explicit.
     try {
       const { storeEntry, resolveDbPath: _rdbStore } = await import('../memory/memory-initializer.js');
       const dbPath = _rdbStore(ctx.flags.path as string | undefined);
@@ -262,7 +268,10 @@ const storeCommand: Command = {
         key,
         value,
         namespace,
-        generateEmbeddingFlag: true, // Always generate embeddings for semantic search
+        generateEmbeddingFlag: ctx.flags.embedding !== false,
+        requireNative: ctx.flags.requireNative === true,
+        appendOnly: ctx.flags.appendOnly === true,
+        ...(typeof ctx.flags.appendConditions === 'string' ? { appendConditions: validateAppendConditions(JSON.parse(ctx.flags.appendConditions)) } : {}),
         tags,
         ttl,
         upsert,
@@ -828,17 +837,24 @@ const listCommand: Command = {
       type: 'number',
       default: 20
     },
+    {
+      name: 'embeddings',
+      description: `ADR-472: with --format json, add each entry's stored embedding as int8+scale (embeddingQ8: {dims, scale, b64}); read-only, at most ${MAX_LIST_EMBEDDINGS} entries per call`,
+      type: 'boolean',
+      default: false
+    },
     DB_PATH_OPTION
   ],
   action: async (ctx: CommandContext): Promise<CommandResult> => {
     const namespace = ctx.flags.namespace as string;
     const limit = ctx.flags.limit as number;
+    const includeEmbedding = ctx.flags.embeddings === true && ctx.flags.format === 'json';
 
     // Use sql.js directly for consistent data access
     try {
       const { listEntries, resolveDbPath: _rdbList } = await import('../memory/memory-initializer.js');
       const dbPathList = _rdbList(ctx.flags.path as string | undefined);
-      const listResult = await listEntries({ namespace, limit, offset: 0, dbPath: dbPathList });
+      const listResult = await listEntries({ namespace, limit, offset: 0, dbPath: dbPathList, ...(includeEmbedding && { includeEmbedding: true }) });
 
       if (!listResult.success) {
         output.printError(`Failed to list: ${listResult.error}`);

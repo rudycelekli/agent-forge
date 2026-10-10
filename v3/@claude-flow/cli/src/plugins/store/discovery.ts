@@ -112,6 +112,12 @@ export interface PluginDiscoveryResult {
   source?: string;
   fromCache?: boolean;
   error?: string;
+  /**
+   * True when the signed registry could not be fetched or verified and the CLI fell back to
+   * its built-in plugin list. That list is safe to use (fixed, first-party npm names), but it
+   * is NOT the verified registry, and callers must say so rather than report a discovery.
+   */
+  demo?: boolean;
 }
 
 /**
@@ -119,7 +125,7 @@ export interface PluginDiscoveryResult {
  */
 export class PluginDiscoveryService {
   private config: PluginStoreConfig;
-  private cache: Map<string, { registry: PluginRegistry; timestamp: number }> = new Map();
+  private cache: Map<string, { registry: PluginRegistry; timestamp: number; demo?: boolean }> = new Map();
 
   constructor(config: Partial<PluginStoreConfig> = {}) {
     this.config = { ...DEFAULT_PLUGIN_STORE_CONFIG, ...config };
@@ -149,7 +155,9 @@ export class PluginDiscoveryService {
         success: true,
         registry: cached.registry,
         fromCache: true,
-        source: registry.name,
+        // A cached fallback is still the fallback: never relabel it as the real registry.
+        source: cached.demo ? `${registry.name} (demo)` : registry.name,
+        ...(cached.demo ? { demo: true } : {}),
       };
     }
 
@@ -253,10 +261,10 @@ export class PluginDiscoveryService {
       totalPlugins: plugins.length,
       totalDownloads: plugins.reduce((sum, p) => sum + p.downloads, 0),
       totalAuthors: 1,
-      featured: ['@claude-flow/plugin-iot-cognitum', '@claude-flow/plugin-agent-federation', '@claude-flow/plugin-agentic-qe', '@claude-flow/plugin-prime-radiant', '@claude-flow/security', '@claude-flow/claims', '@claude-flow/teammate-plugin'],
-      trending: ['@claude-flow/plugin-iot-cognitum', '@claude-flow/plugin-agent-federation', '@claude-flow/plugin-agentic-qe', '@claude-flow/plugin-prime-radiant'],
-      newest: ['@claude-flow/plugin-iot-cognitum', '@claude-flow/plugin-agent-federation', '@claude-flow/plugin-agentic-qe', '@claude-flow/plugin-prime-radiant'],
-      official: ['@claude-flow/plugin-iot-cognitum', '@claude-flow/plugin-agent-federation', '@claude-flow/plugin-agentic-qe', '@claude-flow/plugin-prime-radiant', '@claude-flow/security', '@claude-flow/claims'],
+      featured: ['@claude-flow/plugin-iot-cognitum', '@claude-flow/plugin-agent-federation', '@claude-flow/plugin-prime-radiant', '@claude-flow/security', '@claude-flow/claims', '@claude-flow/teammate-plugin'],
+      trending: ['@claude-flow/plugin-iot-cognitum', '@claude-flow/plugin-agent-federation', '@claude-flow/plugin-prime-radiant'],
+      newest: ['@claude-flow/plugin-iot-cognitum', '@claude-flow/plugin-agent-federation', '@claude-flow/plugin-prime-radiant'],
+      official: ['@claude-flow/plugin-iot-cognitum', '@claude-flow/plugin-agent-federation', '@claude-flow/plugin-prime-radiant', '@claude-flow/security', '@claude-flow/claims'],
       compatibilityMatrix: [
         { pluginId: '@claude-flow/neural', pluginVersion: '3.0.0', claudeFlowVersions: ['3.x'], tested: true },
         { pluginId: '@claude-flow/security', pluginVersion: '3.0.0', claudeFlowVersions: ['3.x'], tested: true },
@@ -267,14 +275,17 @@ export class PluginDiscoveryService {
     this.cache.set(registry.ipnsName, {
       registry: demoRegistry,
       timestamp: Date.now(),
+      demo: true,
     });
 
     return {
       success: true,
       registry: demoRegistry,
-      cid: `bafybeiplugin${crypto.randomBytes(16).toString('hex')}`,
+      // No CID: the built-in list was not fetched from IPFS. (This used to be a random
+      // `bafybeiplugin…` string, printed as "Registry CID" as if it were a real address.)
       source: `${registry.name} (demo)`,
       fromCache: false,
+      demo: true,
     };
   }
 
@@ -591,66 +602,6 @@ export class PluginDiscoveryService {
         ],
         verified: true,
         trustLevel: 'official',
-      },
-      // Agentic QE - AI-powered quality engineering
-      {
-        id: '@claude-flow/plugin-agentic-qe',
-        name: '@claude-flow/plugin-agentic-qe',
-        displayName: 'Agentic Quality Engineering',
-        description: 'AI-powered quality engineering with 58 agents that write tests, find bugs, predict defects, scan security, and perform chaos engineering safely.',
-        version: '3.0.0-alpha.5',
-        cid: 'bafybeiagenticqeplugin2024',
-        size: 285000,
-        checksum: 'sha256:agenticqe2024xyz',
-        author: officialAuthor,
-        license: 'MIT',
-        categories: ['ai-ml', 'devops', 'security'],
-        tags: ['testing', 'qe', 'tdd', 'security', 'chaos-engineering', 'coverage', 'defect-prediction', 'agents'],
-        keywords: ['quality', 'testing', 'agents', 'tdd', 'security'],
-        downloads: 1200,
-        rating: 4.8,
-        ratingCount: 24,
-        lastUpdated: baseTime,
-        createdAt: '2026-01-20T00:00:00Z',
-        minClaudeFlowVersion: '3.0.0',
-        dependencies: [
-          { name: '@claude-flow/core', version: '^3.0.0' },
-        ],
-        type: 'integration',
-        hooks: [
-          'aqe:generate-tests',
-          'aqe:analyze-coverage',
-          'aqe:security-scan',
-          'aqe:predict-defects',
-          'aqe:chaos-inject',
-        ],
-        commands: [
-          'aqe generate-tests',
-          'aqe tdd-cycle',
-          'aqe security-scan',
-          'aqe predict-defects',
-          'aqe chaos-inject',
-          'aqe quality-gate',
-          'aqe visual-regression',
-        ],
-        permissions: ['filesystem', 'network', 'memory'],
-        exports: [
-          'TestGenerator',
-          'CoverageAnalyzer',
-          'SecurityScanner',
-          'DefectPredictor',
-          'ChaosInjector',
-          'QualityGate',
-        ],
-        verified: true,
-        trustLevel: 'official',
-        securityAudit: {
-          auditor: 'claude-flow-security-team',
-          auditDate: '2026-01-20T00:00:00Z',
-          auditVersion: '3.0.0-alpha.3',
-          passed: true,
-          issues: [],
-        },
       },
       // Prime Radiant - Mathematical coherence and consensus verification
       {
@@ -1139,7 +1090,6 @@ export class PluginDiscoveryService {
 
     // Only fetch stats for real npm packages
     const realNpmPackages = [
-      '@claude-flow/plugin-agentic-qe',
       '@claude-flow/plugin-prime-radiant',
       '@claude-flow/claims',
       '@claude-flow/security',

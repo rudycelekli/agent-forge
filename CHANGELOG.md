@@ -7,6 +7,111 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.56.3] - 2026-10-09
+
+Patch release: AgentDB `3.0.0-alpha.20` update. `@claude-flow/memory` 3.0.3 (published standalone; the CLI pins it exactly) and `@claude-flow/cli` 3.56.3. `neural`, `shared` and `cli-core` are unchanged.
+
+### Changed
+
+- AgentDB floor raised from `^3.0.0-alpha.17` to `^3.0.0-alpha.20` (`memory`, `cli`, root, `ruflo`). alpha.20 swaps `@xenova/transformers` for `@huggingface/transformers`, `@ruvector/rvf` 0.1.9 -> 0.2.3 and `ruvector` -> 0.2.x. Semantic search scores shift slightly (same-text cosine ~0.992 against alpha.17 embeddings); an entry scored just under the 0.3 default threshold under alpha.17 can now appear just above it, ranked far below the exact-keyword hit.
+
+### Fixed
+
+- Dev tree only: `v3/package.json` gains a `pnpm.packageExtensions` entry declaring `onnxruntime-common` 1.24.3 for `@huggingface/transformers@4.2.0` (it imports it without declaring it, so pnpm's hoist gave it 1.14.0 and AgentDB silently fell back to mock embeddings in the pnpm workspace; npm installs were not affected).
+- AgentDB alpha.20 refuses a sql.js save when the database changed under an open handle or when `<db>.agentdb.lock` exists, and a lock left by a crashed writer was never cleared, so every later save failed and the database file was never created. `@claude-flow/memory` now removes that lock only when it is provably stale (regular file named exactly `<db>.agentdb.lock`, numeric PID that is dead, older than 10 s, re-verified after an atomic rename-aside), retries once, and otherwise throws `AgentdbLockError`. A failed persist on shutdown is surfaced (`ControllerRegistry`, `AgentDBBackend`, `HybridBackend`, `shutdownBridge`), never swallowed. This only affects the sql.js path (no native better-sqlite3).
+
+## [3.56.2] - 2026-10-09
+
+Patch release: one bug fix in `@claude-flow/cli`. No leaf package changed since 3.56.1 (`git diff v3.56.1..HEAD -- v3/@claude-flow` touches only `cli`). The `ruflo-console` fixes merged since 3.56.1 (console 0.40.4-0.40.8, #3933, #3935, #3938, #3941, #3942) and `ruflo-swarm` 0.3.6 ship through the plugin marketplace, not this npm release.
+
+### Fixed
+
+- `task_update` accepts only the five task statuses; a task stored as `complete` is no longer shown as pending or re-dispatched (#3932, fixes #3931).
+
+## [3.56.1] - 2026-10-08
+
+Patch release: five bug fixes (four in `@claude-flow/cli`, one console). No leaf package changed since 3.56.0 (`git diff v3.56.0..HEAD -- v3/@claude-flow` touches only `cli`), and no behaviour is removed. The `ruflo-console` plugin fixes merged since 3.56.0 (console 0.40.2/0.40.3, #3917, #3924) ship through the plugin marketplace, not this npm release.
+
+### Fixed
+
+- The policy trust mirror and key now honour `HOME` and `XDG_CONFIG_HOME` instead of a fixed home directory, so a throwaway `HOME` no longer yields `policy-anchor-log-missing` (#3922, fixes #3919, reported by @HF-teamdev).
+- `ensureSchemaColumns` rewrites the store only when a column was actually added; an up-to-date encrypted memory store is no longer rewritten by a read such as `memory stats` (#3923, fixes #3918, reported by @HF-teamdev).
+- `config reset --section <name>` resets only that section and removes the matching flat overrides, preserving unrelated configuration (#3901, @rudycelekli).
+- MCP config tools (`config_get/set/list/export/import/reset`) now work on the plain nested JSON document written by the `config` CLI command instead of assuming a `{values, scopes}` envelope; existing envelope stores keep their format (#3902, @rudycelekli). This does not change how the daemon reads `config.json` (see #3192, #3449, #3239).
+- Console approvals badge counts only rows that have an approve or deny action (#3924, fixes #3920, reported by @HF-teamdev); delivered as `ruflo-console` 0.40.3 via the plugin marketplace.
+
+## [3.56.0] - 2026-10-08
+
+Minor release: a hardening and correctness batch from @rudycelekli, @nicholas-ruest, @martinvlad, @HF-teamdev, @drakeo338 and @stuinfla. Several fixes change behaviour on purpose (see Behaviour changes). Integrated by merging each PR head, so authorship is preserved.
+
+### Behaviour changes
+
+- **Unknown ids and value-less options are now errors (#3911, @martinvlad)** — `agent status` / `task status` with an unknown id print `not found` and exit 1; a declared string/number option with no value (`hooks route --task`) now reports `Option --task needs a value` instead of silently becoming `true`. Applies to every command.
+- **`session_save` captures the persisted task/agent/memory stores by default, and `session_import` rejects malformed stores (#3489, #3490)**; explicit `false` still excludes a store.
+- **Default project memory backup snapshots both `memory.db` and `agentdb-memory.db` (#3903)**; explicit `--db` and a non-blank `CLAUDE_FLOW_DB_PATH` still select one file.
+- **Agent pool scale-to-zero is honored and invalid targets fail before writing (#3488)**; a zero fallback retry budget is honored (#3496).
+- **Project path validators block sensitive directory names anywhere under the project root, not only at the leaf (#3504, `@claude-flow/security` 3.0.3)**.
+- **The OAuth callback server retains an early callback and ignores unrelated requests (#3507, `@claude-flow/security` 3.0.3)**.
+- **Provider selection honors an explicit execution provider (#3493) and Anthropic gateway credentials/endpoint (`ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`; #3494, fixes #3100)**; provider timeouts now cover reading the response body (#3495).
+- **`hooks_route` consults persisted SONA outcome patterns before local routing (#3904)** — only a supported agent at confidence >= 0.6 is used; `useSemanticRouter: false` keeps keyword routing. **With the opt-in neural router, selection uses calibrated quality predictions (#3498)** so calibration can move the pick across the quality bar.
+- **The WAL-sidecar safety gate is liveness-based (#3894, fixes #3161)** — leftover `-wal`/`-shm` files from a closed connection no longer block `memory store`/`list`; a genuinely open holder is still refused.
+- **`ruflo init` no longer pins a Claude model in generated `.claude/settings.json` (#3528, fixes #3527)**.
+- **The `ruflo` wrapper pins the matching `@claude-flow/cli` and warns when the resolved CLI version differs (#3438, fixes #3306)**; it warns and continues, it does not refuse.
+- **Claims are stored in one lossless format shared by CLI and MCP; unreadable stores are refused rather than replaced (#3502)**.
+- **Native immutable conditional append for `memory store` (`--append-only`, `--append-conditions`, `--require-native`, `--no-embedding`; #3750, @stuinfla)** — additive, CLI only.
+
+### Fixed
+
+- Shipped `.claude/settings.json` had unescaped quotes in hook commands and did not parse (#3895, fixes #3888, @nicholas-ruest); a new test checks that every shipped settings/plugin JSON parses.
+- Remaining `better-sqlite3` opens go through the shared loader (#3896, fixes #3883's sites, @nicholas-ruest); an RFE1-encrypted store is reported as encrypted, not broken (#3906, fixes #2889, @nicholas-ruest); the demo-registry fallback is labelled as unverified (#3897, @martinvlad).
+- `analyze` preserves machine-readable JSON (#3910); `doctor` rejects unsupported component selections (#3907) and loads MetaHarness modules via file URLs on Windows (#3523, fixes #3186); `daemon start` honors explicit scheduled workers (#3586).
+- Unreadable task/agent records are preserved, not overwritten (#3484); async agent-registry updates do not revive retired agents (#3492); fallback learning is attributed to each attempted model (#3497).
+- Workflow step boundaries are validated (#3491), persisted workflows resume without duplicate executors (#3500) and keep control signals and sibling state across awaits (#3505).
+- Memory JSON import reports rejected writes accurately (#3499); export reads all pages only after successful reads (#3501); concurrent rotating-token refreshes coalesce (#3506).
+- Test fixtures no longer break under pnpm's `NODE_PATH` (#3543, fixes #3529) and the vitest runner is resolved via `package.json`.
+- `@claude-flow/memory` 3.0.2: cache admission accounts for replacement sizes (#3679, fixes #3678) and invalidation matches each key independently (#3687, fixes #3686).
+- Removed an empty `.claude/agents/tmp.json` that shipped in the CLI tarball.
+
+### Not included
+
+#3503 (fail-closed policy envelope: it would deny MCP dispatch for any envelope with a ceiling because dispatch does not supply the metering), #3892, #3831, #3879, #3835, #3751, #3694, #3909 and the draft security PRs: see each PR for the status.
+
+### Leaf packages published with this release
+
+`@claude-flow/memory` 3.0.2, `@claude-flow/security` 3.0.3.
+
+## [3.55.0] - 2026-10-07
+
+Minor release. Contains a security behaviour change: `ruflo mcp start -t http` on a non-loopback host now refuses to start without a token (see Security and Breaking changes).
+
+### Security
+
+- **MCP HTTP transport: refuse unauthenticated non-loopback binds, optional bearer-token auth (#3598, #3599)** — `ruflo mcp start -t http --host 0.0.0.0` (or any non-loopback host) now exits 1 unless a token is set (`RUFLO_MCP_HTTP_TOKEN`, `--auth-token-file`, `--auth-token`) or the operator opts out with `RUFLO_MCP_ALLOW_UNAUTHENTICATED_HTTP=1`. With a token, `/rpc`, `/mcp` and `/info` need `Authorization: Bearer <token>` (constant-time compare); `/health` stays public and minimal. Also fixes a fail-open in `@claude-flow/mcp` where auth enabled with an empty token list accepted any bearer value. **Not closed:** loopback with no token is still unauthenticated (any local process can call every tool, and DNS rebinding is not blocked because there is no `Host` allow-list); set a token whenever the HTTP transport is used. A valid token grants every tool (no per-tool authorization).
+- **Hive-mind gating that keeps local users working (ADR-476, #3338, #3339)** — `hive-mind_init` no longer returns `hiveToken`, and `spawn`, `consensus` `propose`, `broadcast`, `shutdown`, `memory` `set`/`delete` and `optimize-memory` (plus the existing `join`/`leave`/`vote`) now require an operator credential from **remote** callers (HTTP/WebSocket MCP). Local stdio MCP, `ruflo mcp exec`, the `hive-mind` CLI and in-process callers need no credential and no extra step. Remote clients set `RUFLO_HIVE_BOOTSTRAP_SECRET` (or read `.claude-flow/hive-mind/bootstrap.secret`, created 0600 by the first local `hive-mind init`) and send it as `bootstrapSecret`; `RUFLO_HIVE_REQUIRE_AUTH=1` applies the same rule to stdio on bridged servers. `state.json` is now written 0600 atomically and the hive directory 0700. Migration: clients that read `hiveToken` from the `init` response must drop that (it is `undefined`); over stdio they omit it everywhere. This is a speed bump, not a boundary, against a local prompt-injected agent that can read the files.
+- **Policy ledger anchor can no longer be deleted and silently re-established (#3602, #3886, ADR-475)** — `policy verify` no longer trusts an anchor stored only in `state.json`. A second, hash-chained anchor log plus a mirror under `~/.config/ruflo/policy-trust/` now detect truncation, and `policy verify --establish-anchor` (interactive TTY only) is the logged repair path. Limit: this does not defend against an attacker who can rewrite both the project directory and `~/.config/ruflo`; stronger evidence needs an external witness. A pre-#3568 ledger with receipts and no anchor now fails policy transactions with `policy-ledger-anchor-missing` until repaired. Ships in `@claude-flow/security` 3.0.2.
+
+### Fixed
+
+- **Resilience batch (#3885; fixes #3676 #3674 #3668 #3670 #3682 #3672 #3593 #3592; thanks @rudycelekli)** — `@claude-flow/shared` 3.0.2: event-store pagination, bulkhead sync-throw handling, retry timeout cleanup, connection-pool reservation (also in `@claude-flow/mcp`); cli: production retry on non-Error rejections, worker-queue terminal outcomes and cancelled head, bounded worker pool with an already-aborted input.
+- **`@claude-flow/memory` 3.0.1 — `mmrRerank()` caches embedding-cosine max-similarity across rounds (#3516, #3517)**.
+- **`@claude-flow/swarm` 3.0.1** — Byzantine quorums now intersect for every cluster size (#3560, #3587, @rudycelekli); `spawnAgent()` auto-domain branch registers the agent in its pool (#3538, #3539); `MessageBus` is event-driven instead of a 10 ms unconditional poll (#3563).
+- **`@claude-flow/plugin-agent-federation` 1.0.1** — outbound sends are authorized with the peer's current trust, not a stale snapshot (#3561, #3588, @rudycelekli).
+- **CLI string options keep their declared value (#3594, #3601)**, **config cache is isolated per project directory (#3590, #3591)**, **nested config defaults are cloned (#3595, #3600)** — all @rudycelekli.
+- **Hive consensus commands fail when the hive rejects the operation (#3609, #3654, @rudycelekli)**.
+- **`daemon start --workers` selection reaches the WorkerDaemon (#3547, #3875)**.
+- **Plugins run the installed ruflo CLI before `npx @claude-flow/cli@latest` (#3558, #3559, @HF-teamdev)** — ruflo-cost-tracker 0.27.2, ruflo-adr 0.5.4, ruflo-metaharness 0.2.4, ruflo-goals 0.4.3.
+- **ruflo-adr edge keys use a separator the memory validator accepts (#3633, #3636, @drakeo338)**.
+- ruflo-console 0.36.1: Settings lists Claude control and spending first (#3887).
+
+### Breaking changes
+
+- Binding the MCP HTTP transport off loopback (for example Docker with `--host 0.0.0.0`) now requires `RUFLO_MCP_HTTP_TOKEN` (and clients must send the header) or `RUFLO_MCP_ALLOW_UNAUTHENTICATED_HTTP=1`; otherwise `mcp start` exits with an error. Loopback users are unaffected.
+- `hive-mind_init` no longer returns `hiveToken` (ADR-476).
+
+### Leaf packages published with this release
+
+`@claude-flow/shared` 3.0.2, `@claude-flow/memory` 3.0.1, `@claude-flow/swarm` 3.0.1, `@claude-flow/security` 3.0.2, `@claude-flow/mcp` 3.1.0, `@claude-flow/plugin-agent-federation` 1.0.1.
+
 ## [3.34.0] - 2026-07-31
 
 ### Added

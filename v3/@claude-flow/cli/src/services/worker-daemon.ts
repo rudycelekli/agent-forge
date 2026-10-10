@@ -32,7 +32,7 @@ import {
 // incremental (rowid cursor), non-destructive, transactional, and
 // quick_check-gated, so it's safe to call unconditionally on every tick.
 import { runDistillation, defaultMemoryDbPath, type DistillReport } from './memory-distillation.js';
-import { backupMemoryDb } from './memory-backup.js';
+import { backupProjectMemoryDbs } from './memory-backup.js';
 import { resolveGitWorkspaceIdentity, type GitWorkspaceIdentity } from './git-workspace-identity.js';
 import { getWorkspaceLeaseRegistry } from './workspace-lease.js';
 import { getRepoSupervisorRegistry, type SupervisorRecord } from './repo-supervisor.js';
@@ -134,6 +134,12 @@ export interface DaemonConfig {
   // .claude-flow/config.json, or RUFLO_DAEMON_AI_WORKERS=1.
   aiWorkersEnabled: boolean;
   workers: WorkerConfig[];
+  // #3547 (#1968 follow-up): explicit `daemon start --workers <list>`
+  // selection. When set, only these worker types are enabled — applied
+  // after daemon-state.json restore (initializeWorkerStates) so a stale
+  // saved state can never re-enable a worker the operator just deselected.
+  // Undefined means "no explicit selection": DEFAULT_WORKERS/state decide.
+  enabledWorkers?: string[];
 }
 
 // Worker configuration with staggered offsets to prevent overlap
@@ -153,6 +159,15 @@ const DEFAULT_WORKERS: WorkerConfigInternal[] = [
   { type: 'predict', intervalMs: 10 * 60 * 1000, offsetMs: 0, priority: 'low', description: 'Predictive preloading', enabled: false },
   { type: 'document', intervalMs: 60 * 60 * 1000, offsetMs: 0, priority: 'low', description: 'Auto-documentation', enabled: false },
 ];
+
+/** Parse only worker types the daemon can actually schedule. */
+export function parseEnabledWorkers(value: string): WorkerType[] {
+  const names = value.split(',');
+  if (!names.length || names.some(name => !DEFAULT_WORKERS.some(worker => worker.type === name))) {
+    throw new Error(`--workers must be a comma-separated list of: ${DEFAULT_WORKERS.map(worker => worker.type).join(',')}`);
+  }
+  return [...new Set(names)] as WorkerType[];
+}
 
 // Worker timeout — must exceed the longest per-worker headless timeout (15 min for audit/refactor).
 // Previously 5 min, which caused orphan processes when daemon timeout fired before executor timeout (#1117).
@@ -317,7 +332,8 @@ export class WorkerDaemon extends EventEmitter {
       aiWorkersEnabled: config?.aiWorkersEnabled
         ?? fileConfig.aiWorkersEnabled
         ?? (process.env.RUFLO_DAEMON_AI_WORKERS === '1'),
-      workers: config?.workers ?? DEFAULT_WORKERS,
+      workers: (config?.workers ?? DEFAULT_WORKERS).map(worker => ({ ...worker })),
+      enabledWorkers: config?.enabledWorkers,
     };
 
     // #2935 — deferred from readDaemonConfigFromFile(): this.config (and
@@ -852,6 +868,18 @@ export class WorkerDaemon extends EventEmitter {
         }
       } catch {
         // Ignore parse errors, start fresh
+      }
+    }
+
+    // #3547 (#1968 follow-up): an explicit `--workers` selection wins over
+    // both DEFAULT_WORKERS and whatever daemon-state.json just restored
+    // above — otherwise `daemon start --workers map,audit` always ran the
+    // full default set (or a stale saved selection) because nothing ever
+    // applied the requested list to `enabled`.
+    if (this.config.enabledWorkers) {
+      const selected = new Set(this.config.enabledWorkers);
+      for (const workerConfig of this.config.workers) {
+        workerConfig.enabled = selected.has(workerConfig.type);
       }
     }
 
@@ -1818,8 +1846,8 @@ export class WorkerDaemon extends EventEmitter {
   }
 
   /**
-   * Nightly memory-DB backup worker (24h interval). Takes a WAL-safe, consistent
-   * snapshot of .swarm/memory.db with rotation (keep last N). Never throws — a
+   * Nightly memory-DB backup worker (24h interval). Takes WAL-safe, consistent
+   * snapshots of the active CLI and AgentDB stores with rotation (keep last N). Never throws — a
    * worker must not crash the daemon; a skip/error is written to the metrics
    * file. Opt-out by omitting `backup` from `-w`; offsite GCS is opt-in via
    * RUFLO_BACKUP_GCS (a gs:// prefix), retention via RUFLO_BACKUP_KEEP.
@@ -1832,14 +1860,14 @@ export class WorkerDaemon extends EventEmitter {
     let result: Record<string, unknown>;
     try {
       const keepEnv = Number(process.env.RUFLO_BACKUP_KEEP);
-      const r = await backupMemoryDb({
-        dbPath: defaultMemoryDbPath(this.projectRoot),
+      const r = await backupProjectMemoryDbs(this.projectRoot, {
         keep: Number.isFinite(keepEnv) && keepEnv > 0 ? keepEnv : 7,
         gcs: process.env.RUFLO_BACKUP_GCS || undefined,
       });
       result = {
         timestamp: new Date().toISOString(),
         backedUp: r.backedUp,
+        backups: r.backups,
         path: r.path,
         sizeBytes: r.sizeBytes ?? 0,
         rotatedAway: r.rotatedAway?.length ?? 0,
