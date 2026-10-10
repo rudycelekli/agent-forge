@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { SlidingWindowRateLimiter, TokenBucketRateLimiter } from '../v3/@claude-flow/shared/src/resilience/rate-limiter.ts';
 test('sliding-window admission expires a request at its advertised reset time', () => {
