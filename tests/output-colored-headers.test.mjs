@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { OutputFormatter } from '../v3/@claude-flow/cli-core/src/output.ts';
 const visible = text => text.replace(/\x1b\[[0-9;]*m/g, '');
