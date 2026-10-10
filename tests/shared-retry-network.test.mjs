@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { createServer, get } from 'node:http';
 import { RetryableErrors } from '../v3/@claude-flow/shared/src/resilience/retry.ts';
