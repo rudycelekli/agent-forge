@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { parseConfigValue } from '../v3/@claude-flow/cli/src/services/config-file-manager.ts';
 test('numeric configuration values preserve JSON number semantics', () => {
