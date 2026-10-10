@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { CommandParser } from '../v3/@claude-flow/cli/src/parser.ts';
 const parser = () => { const p = new CommandParser(); p.registerCommand({ name: 'memory', description: 'Memory', action() {} }); return p; };
