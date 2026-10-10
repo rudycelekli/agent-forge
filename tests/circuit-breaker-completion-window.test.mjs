@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { CircuitBreaker } from '../v3/@claude-flow/shared/src/resilience/circuit-breaker.ts';
 test('long-running failures expire old requests before evaluating the rolling window',async()=>{
