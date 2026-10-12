@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -83,8 +84,19 @@ def run_tests(name, package, files, passed, failed=0, skipped=0, extra=()):
         failures = [test for suite in data["testResults"] for test in suite["assertionResults"] if test["status"] == "failed"]
         assert len(failures) == failed
         if name == "before-worker-default":
-            assert all("admits an ordinary generated worker envelope" in test["fullName"] for test in failures)
-            assert all("concurrency-outside-envelope" in "\n".join(test["failureMessages"]) for test in failures)
+            expected_names = {mode + " public policy evaluation admits an ordinary generated worker envelope through real MCP dispatch" for mode in ["legacy", "observe", "enforce"]}
+            assert {test["fullName"] for test in failures} == expected_names
+            # Vitest4 JSON truncates the nested MCPClientError cause in this
+            # promise assertion. Its complete default reporter retains it.
+            plain = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+            assert "Failed Tests 3" in plain
+            failure_block = plain.split("Failed Tests 3", 1)[1].split("Test Files", 1)[0]
+            groups = re.split(r"\n[⎯]{5,}[^\n]*\n", failure_block)
+            for mode in ["legacy", "observe", "enforce"]:
+                header = "FAIL __tests__/policy-envelope-metering.test.ts > " + mode + " public policy evaluation > admits an ordinary generated worker envelope through real MCP dispatch"
+                matching = [group for group in groups if header in "\n".join(" ".join(line.split()) for line in group.splitlines())]
+                assert len(matching) == 1, (mode, matching)
+                assert "policy-denied:concurrency-outside-envelope" in matching[0], mode
         else:
             assert all("does not bypass" in test["fullName"] for test in failures)
     results[name] = {"command": command, "exitCode": result.returncode, **counts}
