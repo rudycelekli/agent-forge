@@ -19,6 +19,7 @@ hashes = {
 }
 assert subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip() == SOURCE
 tracked = subprocess.check_output(["git", "ls-files", "v3/@claude-flow/cli/vitest.config.ts", "v3/@claude-flow/security/vitest.config.ts", "v3/@claude-flow/codex/vitest.config.ts", "v3/@claude-flow/security/src/policy/envelope.ts", "v3/@claude-flow/cli/__tests__/policy-runtime.test.ts", "v3/@claude-flow/security/__tests__/agentic-policy-engine.test.ts", "v3/@claude-flow/codex/tests/dual-mode.test.ts", "v3/@claude-flow/cli-core/package.json", "v3/@claude-flow/cli-core/src/mcp-tools/types.ts", "v3/@claude-flow/cli-core/src/mcp-tools/validate-input.ts", "v3/@claude-flow/cli-core/src/output.ts", "v3/@claude-flow/cli-core/src/types.ts"], cwd=source, text=True).splitlines()
+tracked.append("v3/@claude-flow/security/src/safe-git.ts")
 hashes.update({p: hashlib.sha256((source / p).read_bytes()).hexdigest() for p in tracked})
 
 
@@ -48,6 +49,9 @@ codex_config.write_text("""import { mergeConfig } from 'vitest/config';
 import official from './v3/@claude-flow/codex/vitest.config.ts';
 import { fileURLToPath } from 'node:url';
 export default mergeConfig(official, { resolve: { alias: [{
+  find: '@claude-flow/security/safe-git',
+  replacement: fileURLToPath(new URL('./v3/@claude-flow/security/src/safe-git.ts', import.meta.url)),
+}, {
   find: /^@claude-flow\\/security$/,
   replacement: fileURLToPath(new URL('./v3/@claude-flow/security/src/index.ts', import.meta.url)),
 }] } });
