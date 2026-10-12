@@ -1,0 +1,51 @@
+name: Ruflo 3503 exact-source scoped native validation
+on:
+  push:
+    branches: [validation/ruflo3503-native-20261012]
+permissions:
+  contents: read
+concurrency:
+  group: ruflo3503-scoped-native
+  cancel-in-progress: false
+jobs:
+  native-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out validation assets
+        uses: actions/checkout@v4
+        with:
+          path: validation
+          persist-credentials: false
+      - name: Check out frozen public source
+        uses: actions/checkout@v4
+        with:
+          repository: rudycelekli/agent-forge
+          ref: dbdceb6184b9ede2c03ac4dadcd838f094c12895
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up pinned Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - name: Install pinned scoped test dependencies
+        env:
+          npm_config_audit: false
+          npm_config_fund: false
+        run: |
+          mkdir -p "$RUNNER_TEMP/ruflo3503-deps" evidence
+          cp validation/.github/validation/ruflo3503/dependency-pins.json "$RUNNER_TEMP/ruflo3503-deps/package.json"
+          npm install --prefix "$RUNNER_TEMP/ruflo3503-deps" --ignore-scripts --no-audit --no-fund
+          ln -s "$RUNNER_TEMP/ruflo3503-deps/node_modules" source/node_modules
+          cp "$RUNNER_TEMP/ruflo3503-deps/package-lock.json" evidence/dependency-lock.json
+      - name: Run real policy consumers, scheduler controls and frozen negative baselines
+        run: python3 validation/.github/validation/ruflo3503/native-proof.py source evidence
+      - name: Preserve exact-source receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruflo3503-dbdceb61-native-4-1
+          path: evidence
+          if-no-files-found: error
+          retention-days: 14
