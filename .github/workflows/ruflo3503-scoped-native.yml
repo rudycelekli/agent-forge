@@ -1,0 +1,82 @@
+name: Qualify ADR lifecycle annotations
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 4911d0043f8985e9b6be9a505c5ac2e32c043ca2
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+      - name: Bind exact source and isolated runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 4911d0043f8985e9b6be9a505c5ac2e32c043ca2
+          git diff --exit-code
+          git diff --cached --exit-code
+          mkdir -p evidence
+          echo "CI=true" >> "$GITHUB_ENV"
+          echo "RUFLO_DAEMON_AUTOSTART=0" >> "$GITHUB_ENV"
+          echo "RUFLO_NO_SKILLS_SH=1" >> "$GITHUB_ENV"
+          git rev-parse HEAD HEAD^{tree} > evidence/source-head-tree.txt
+          sha256sum plugins/ruflo-adr/scripts/lib/parse-adrs.mjs plugins/ruflo-adr/scripts/__tests__/parser-annotations-4126.test.mjs > evidence/candidate-source.sha256
+      - name: Native original cause and repaired plugin suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=plugins/ruflo-adr/scripts/lib/parse-adrs.mjs
+          trap 'git restore --source=4911d0043f8985e9b6be9a505c5ac2e32c043ca2 -- "$file"' EXIT
+          git show 55e2c9011c20d25e347a175427ca8084dacde40c:"$file" > "$file"
+          git diff > evidence/original-cause.diff
+          set +e
+          node --test plugins/ruflo-adr/scripts/__tests__/parser-annotations-4126.test.mjs > evidence/before.log 2>&1
+          rc=$?
+          set -e
+          test "$rc" -eq 1
+          node --input-type=module - <<'CHECK'
+          import fs from 'node:fs';
+          const text=fs.readFileSync('evidence/before.log','utf8');
+          const failed=[...text.matchAll(/^not ok \d+ - (.+)$/gm)].map(m=>m[1]);
+          const expected=['accepted with trailing note','superseded with linked decision','accepted with amended note'];
+          if(failed.length!==3 || expected.some(t=>!failed.includes(t)) || !/^# tests 9$/m.test(text) || !/^# pass 6$/m.test(text) || !/^# fail 3$/m.test(text)) throw Error('Unexpected causal outcomes');
+          if((text.match(/code: 'ERR_ASSERTION'/g)||[]).length!==3 || (text.match(/actual: 'Unknown'/g)||[]).length!==3 || /Cannot find|MODULE_NOT_FOUND|timed out|cancelled [1-9]|ENOENT/.test(text)) throw Error('Not three Unknown lifecycle assertions');
+          CHECK
+          git restore --source=4911d0043f8985e9b6be9a505c5ac2e32c043ca2 -- "$file"
+          sha256sum --check evidence/candidate-source.sha256
+          node --test plugins/ruflo-adr/scripts/__tests__/*.mjs > evidence/plugin-after.log 2>&1
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Install locked root dependencies
+        shell: bash
+        run: npm ci
+      - name: Required full root test command
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 55m npm test 2>&1 | tee evidence/root-npm-test.log
+      - name: Verify exact final tested source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 4911d0043f8985e9b6be9a505c5ac2e32c043ca2
+          sha256sum --check evidence/candidate-source.sha256
+          git diff --exit-code
+          git diff --cached --exit-code
+          git rev-parse HEAD HEAD^{tree} > evidence/final-source-head-tree.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: adr-native-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
