@@ -107,6 +107,11 @@ function parseStatus(text) {
   // prefix (`- **Status**: proposed`) — that's exactly what adr-create's
   // own template emits, and the column-0-anchored regex dropped every
   // freshly-scaffolded ADR to status=Unknown, making adr-review a no-op.
+  // Preserve custom status phrases. Only recognized annotation syntax strips
+  // a lifecycle state's date, amendment note, or superseding ADR link.
+  const statusLine = /^[-*+]?[ \t]*(?:\*\*Status:?\*\*:?|\*\*Status:)[ \t]*([^\r\n]+)$/im.exec(text);
+  const annotated = statusLine && /^(proposed|accepted|rejected|deprecated|superseded)(?:[ \t]+\([^\r\n)]*\)(?:[ \t]*[—·].*)?|[ \t]+[—·].*|[ \t]+by[ \t]+\[ADR-\d+\]\([^\r\n)]+\)(?:[ \t]+\([^\r\n)]*\))?|\*\*)[ \t]*$/i.exec(statusLine[1]);
+  if (annotated) return annotated[1];
   let m = /^[-*+]?\s*\*\*Status:?\*\*:?\s*([A-Za-z][A-Za-z\- ]*?)(?:\s*\(.*?\))?\s*$/m.exec(text);
   if (m) return m[1].trim();
   // Also handle full-bold MADR style: **Status: Value** (entire phrase bolded)
