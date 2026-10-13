@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+// Keep the plugin's Node runner and the repository's Vitest runner on the same assertions.
+const { test } = process.env.VITEST === 'true'
+  ? await import('vitest')
+  : await import('node:test');
 
 import { parseAdr } from '../lib/parse-adrs.mjs';
 
