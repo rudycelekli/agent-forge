@@ -7,10 +7,19 @@ jobs:
   native:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - mode: baseline
+            source: 55e2c9011c20d25e347a175427ca8084dacde40c
+          - mode: candidate
+            source: f7b36e4b3788603fa98da41953d1be579881879c
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: 4911d0043f8985e9b6be9a505c5ac2e32c043ca2
+          ref: ${{ matrix.source }}
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -21,7 +30,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 4911d0043f8985e9b6be9a505c5ac2e32c043ca2
+          test "$(git rev-parse HEAD)" = "${{ matrix.source }}"
           git diff --exit-code
           git diff --cached --exit-code
           mkdir -p evidence
@@ -29,13 +38,17 @@ jobs:
           echo "RUFLO_DAEMON_AUTOSTART=0" >> "$GITHUB_ENV"
           echo "RUFLO_NO_SKILLS_SH=1" >> "$GITHUB_ENV"
           git rev-parse HEAD HEAD^{tree} > evidence/source-head-tree.txt
-          sha256sum plugins/ruflo-adr/scripts/lib/parse-adrs.mjs plugins/ruflo-adr/scripts/__tests__/parser-annotations-4126.test.mjs > evidence/candidate-source.sha256
+          sha256sum plugins/ruflo-adr/scripts/lib/parse-adrs.mjs > evidence/candidate-source.sha256
+          if [ "${{ matrix.mode }}" = candidate ]; then
+            sha256sum plugins/ruflo-adr/scripts/__tests__/parser-annotations-4126.test.mjs >> evidence/candidate-source.sha256
+          fi
       - name: Native original cause and repaired plugin suite
+        if: matrix.mode == 'candidate'
         shell: bash
         run: |
           set -euo pipefail
           file=plugins/ruflo-adr/scripts/lib/parse-adrs.mjs
-          trap 'git restore --source=4911d0043f8985e9b6be9a505c5ac2e32c043ca2 -- "$file"' EXIT
+          trap 'git restore --source=f7b36e4b3788603fa98da41953d1be579881879c -- "$file"' EXIT
           git show 55e2c9011c20d25e347a175427ca8084dacde40c:"$file" > "$file"
           git diff > evidence/original-cause.diff
           set +e
@@ -51,11 +64,15 @@ jobs:
           if(failed.length!==3 || expected.some(t=>!failed.includes(t)) || !/^# tests 9$/m.test(text) || !/^# pass 6$/m.test(text) || !/^# fail 3$/m.test(text)) throw Error('Unexpected causal outcomes');
           if((text.match(/code: 'ERR_ASSERTION'/g)||[]).length!==3 || (text.match(/actual: 'Unknown'/g)||[]).length!==3 || /Cannot find|MODULE_NOT_FOUND|timed out|cancelled [1-9]|ENOENT/.test(text)) throw Error('Not three Unknown lifecycle assertions');
           CHECK
-          git restore --source=4911d0043f8985e9b6be9a505c5ac2e32c043ca2 -- "$file"
+          git restore --source=f7b36e4b3788603fa98da41953d1be579881879c -- "$file"
           sha256sum --check evidence/candidate-source.sha256
           node --test plugins/ruflo-adr/scripts/__tests__/*.mjs > evidence/plugin-after.log 2>&1
           git diff --exit-code
           git diff --cached --exit-code
+      - name: Complete native baseline plugin suite
+        if: matrix.mode == 'baseline'
+        shell: bash
+        run: node --test plugins/ruflo-adr/scripts/__tests__/*.mjs > evidence/plugin-baseline.log 2>&1
       - name: Install locked root dependencies
         shell: bash
         run: npm ci
@@ -63,12 +80,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          set +e
           timeout 55m npm test 2>&1 | tee evidence/root-npm-test.log
+          test_exit=${PIPESTATUS[0]}
+          set -e
+          echo "$test_exit" > evidence/root-npm-test-exit.txt
+          exit "$test_exit"
       - name: Verify exact final tested source
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 4911d0043f8985e9b6be9a505c5ac2e32c043ca2
+          test "$(git rev-parse HEAD)" = "${{ matrix.source }}"
           sha256sum --check evidence/candidate-source.sha256
           git diff --exit-code
           git diff --cached --exit-code
@@ -76,7 +99,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: adr-native-evidence
+          name: adr-native-${{ matrix.mode }}-evidence
           path: evidence/
           if-no-files-found: error
           retention-days: 7
